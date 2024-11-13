@@ -40,62 +40,61 @@ upsis.brmsfit <- function (model, data_add = NULL, data_remove = NULL) {
     )
   }
   draw_weights <- loo::weights.importance_sampling(psis_out, log = FALSE)
+  draws_per_chain <- brms::ndraws(model) / brms::nchains(model)
+  draw_weights_list <- matrix(draw_weights, nrow = draws_per_chain) |>
+    as.data.frame() |>
+    as.list()
   
   updated_model <- model
-  updated_model$fit <- reweight_stanfit_draws(model$fit, draw_weights)
+  draws_list <- posterior::as_draws_list(model$fit@sim$samples)
+  n_warmup <- (posterior::ndraws(draws_list) - brms::ndraws(model)) / brms::nchains(model)
+
+  updated_model$fit@sim$samples <-
+    resample_by_chain(
+      draws_list, n_warmup, draw_weights_list
+    )
+  
+  for(i in seq_along(updated_model$fit@sim$samples)) {
+    attributes(updated_model$fit@sim$samples[[i]]) <-
+      attributes(model$fit@sim$samples[[i]])
+  }
   
   out <- list(updated_model = updated_model, psis = psis_out)
   out
 }
 
-#' Update post-warmup draws of a stanfit based on a vector of weights
-#' @param stanfit a stanfit
-#' @param weights a vector of weights
-reweight_stanfit_draws <- function(stanfit, draw_weights) {
-  stanargs <- stanfit@stan_args
-  n_chains <- length(stanargs)
-  draws_per_chain <- length(draw_weights) / n_chains
-  assertthat::assert_that(draws_per_chain == round(draws_per_chain))
-  
-  draw_weight_mat <- matrix(draw_weights, nrow = draws_per_chain)
-  
-  iter <- lapply(stanargs, function(x){x$iter}) |>
-    unlist() |>
-    unique()
-  assertthat::assert_that(length(iter) == 1)
-  
-  warmup <- lapply(stanargs, function(x){x$warmup}) |>
-    unlist() |>
-    unique()
-  assertthat::assert_that(length(warmup) == 1)
-  
-  thin <- lapply(stanargs, function(x){x$thin}) |>
-    unlist() |>
-    unique()  
-  assertthat::assert_that(length(thin) == 1)
-  
-  draws_per_chain_2 <- (iter - warmup) / thin
-  assertthat::assert_that(draws_per_chain == draws_per_chain_2)
-  
-  samples <- stanfit@sim$samples
-  assertthat::assert_that(length(samples) == n_chains)
-  
-  for (i in 1:n_chains) {
-    si <- samples[[i]]
-    wi <- draw_weight_mat[,i]
-    ids <- sample(
-      1:draws_per_chain, 
-      draws_per_chain, 
-      replace = TRUE,
-      prob = wi
-      )
-    for(j in 1:length(si)) {
-      si_length <- length(si[[j]])
-      si[[j]][(1 + si_length - draws_per_chain) : si_length] <- 
-        si[[j]][(1 + si_length - draws_per_chain) : si_length][ids]
-      }
-    stanfit@sim$samples[[i]] <- si
+resample_by_chain <- function(draws_list, n_warmup, weights) {
+  if(length(n_warmup) == 1) {
+    n_warmup <- rep(n_warmup, posterior::nchains(draws_list))
   }
-  
-  stanfit
+  assertthat::assert_that("draws_list" %in% class(draws_list))
+  mapply(resample_one_chain, draws_list, n_warmup, weights)
 }
+
+resample_one_chain <- function(draws_list, n_warmup_draws, weights) {
+  draws_list <- posterior::as_draws_list(draws_list)
+  assertthat::assert_that(posterior::nchains(draws_list) == 1)
+  assertthat::assert_that(length(n_warmup_draws) == 1)
+  n_draws <- posterior::ndraws(draws_list)
+  assertthat::assert_that(n_draws > n_warmup_draws)
+  assertthat::assert_that((n_draws - n_warmup_draws) == length(weights))
+  draws_df <- posterior::as_draws_df(draws_list)
+  post_warmup_draws <- draws_df[(n_warmup_draws + 1) : n_draws, ]
+  resampled_draws <- posterior::resample_draws(
+    post_warmup_draws, 
+    weights = weights, 
+    method = "stratified"
+    )
+  if(n_warmup_draws > 0) {
+    warmup_draws <- draws_df[1 : n_warmup_draws, ]
+    resampled_draws <- rbind(warmup_draws, resampled_draws)
+  }
+  posterior::as_draws_list(resampled_draws)
+  
+}
+
+
+
+
+
+
