@@ -11,6 +11,7 @@ upsis <- function (model, data_add = NULL, data_remove = NULL) {
 #' @param model a brmsfit object
 #' @param data_add additional data collected after the model was fit
 #' @param data_remove data included in model fitting whose influence to remove
+#' @method upsis brmsfit
 upsis.brmsfit <- function (model, data_add = NULL, data_remove = NULL) {
   if(is.null(data_add) & is.null(data_remove)){
     warning("no data added or removed; returning original model object")
