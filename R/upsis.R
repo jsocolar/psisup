@@ -70,7 +70,16 @@ resample_by_chain <- function(draws_list, n_warmup, weights) {
     n_warmup <- rep(n_warmup, posterior::nchains(draws_list))
   }
   assertthat::assert_that("draws_list" %in% class(draws_list))
-  mapply(resample_one_chain, draws_list, n_warmup, weights)
+  assertthat::assert_that(length(draws_list) == length(weights))
+  assertthat::assert_that(length(draws_list) == posterior::nchains(draws_list))
+  
+  out <- list()
+  for(i in seq_along(draws_list)){
+    out[[i]] <- resample_one_chain(draws_list[i], n_warmup[i], weights[[i]])
+  }
+  
+  # mapply(resample_one_chain, draws_list, n_warmup, weights)
+  out
 }
 
 resample_one_chain <- function(draws_list, n_warmup_draws, weights) {
@@ -90,8 +99,11 @@ resample_one_chain <- function(draws_list, n_warmup_draws, weights) {
   if(n_warmup_draws > 0) {
     warmup_draws <- draws_df[1 : n_warmup_draws, ]
     resampled_draws <- rbind(warmup_draws, resampled_draws)
+    resampled_draws$.chain <- 1
+    resampled_draws$.draw <- 1:n_draws
+    resampled_draws$.iteration <- 1:n_draws
   }
-  posterior::as_draws_list(resampled_draws)
+  posterior::as_draws_list(resampled_draws)[[1]]
   
 }
 
